@@ -22,7 +22,12 @@
 //     back - 1) exceeds +0.3%. Buy with all cash, one order.
 //   - Exit, when long: sell the whole position when this close falls 0.8%
 //     below the highest close seen since entry (the trailing stop). The
-//     highest close is tracked from the decision close, updated every bar.
+//     highest close is anchored at the fill bar's close, updated every bar:
+//     the peak is only set once the position is actually held, never at the
+//     decision close, because the order fills at the next bar's open and
+//     trailing from a price the bot never got would tighten (or loosen) the
+//     stop by a bar's move for no reason. This matches the backtester, which
+//     anchors its peak at the fill price and reproduces the harness grade.
 //   - No take-profit, no trend filter, no second confirmation: each of those
 //     was measured on the dev window and made the result worse (they exit
 //     too early or enter too late). The strategy is deliberately minimal:
@@ -50,7 +55,7 @@ const MAX_SLIPPAGE_BPS = 100;
 
 /** The closes seen so far, as raw price units (price_scale 5); ratios are scale-free. */
 const closes: number[] = [];
-/** Highest close since the current entry (the decision close at entry, then updated each bar). Null while flat. */
+/** Highest close since the current entry, anchored at the fill bar's close (the first close seen while the position is held). Null while flat. */
 let peak: number | null = null;
 
 await runBars({
@@ -75,7 +80,9 @@ await runBars({
         if (ret > ENTRY_RETURN) {
           const cash = state.cash;
           if (cash >= BigInt(state.hello.fees.min_notional_quote_units)) {
-            peak = close;
+            // Do NOT set peak here: the order fills at the next bar's open,
+            // so the peak is anchored by the fill bar's close (see the
+            // held/peak initialisation above) instead of the decision close.
             const buy: BuyInput = { side: 'buy', symbol: SYMBOL, notional_quote_units: cash, max_slippage_bps: MAX_SLIPPAGE_BPS };
             return [buy];
           }
